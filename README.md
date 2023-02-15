@@ -1,4 +1,4 @@
-# SQL
+#SQL
 SQL queries of various sorts in one repository.
 
 This includes complex queries involving basic DML statements and joins alongside frequently used and extremely useful windows functions in data extraction
