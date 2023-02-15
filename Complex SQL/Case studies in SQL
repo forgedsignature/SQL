@@ -1,0 +1,331 @@
+-- Case1:
+
+# AVAILABLE SEATS
+
+You have a restaurant with 1,000 seats. Whenever a waiter puts 
+someone at a seat, he logs it in a table of seats (I was going to say “table
+of tables” and make this impossible to read). Likewise, when a guest
+finishes a meal, you remove the guest’s seat number. You want to write a
+query to produce a list of the available seats in the restaurant, set up in
+blocks by their starting and ending seat numbers. Oh yes, the gimmick
+is that the database resides on a personal digital assistant and not a
+mainframe computer.
+
+As part of the exercise, you must do this with the smallest amount of
+storage possible. Assume each seat number is an integer.
+
+The first thought is to add a (free/occupied) flag column next to the
+seat-number column. The available seating query would be based on the
+flag. This would be 1,000 rows of one integer and one character for the
+whole restaurant and would work pretty well, but we have that minimal
+storage requirement. Darn! 
+
+Answer:
+SELECT (R1.seat + 1) AS start,
+ (MIN(R2.seat) - 1) AS finish
+ FROM Restaurant AS R1
+ INNER JOIN
+ Restaurant AS R2
+ ON R2.seat > R1.seat
+ GROUP BY R1.seat
+HAVING (R1.seat + 1) < MIN(R2.seat);
+
+
+--------------------
+
+
+-- Case 2:
+
+# Top Salespeople
+
+The three biggest sales and salespeople in each district. Let’s use this data:
+SalesData district_nbr sales_person sales_id sales_amt
+==========================================
+ 1 'Curly' 5 3.00
+ 1 'Harpo' 11 4.00
+ 1 'Larry' 1 50.00
+ 1 'Larry' 2 50.00
+ 1 'Larry' 3 50.00
+ 1 'Moe' 4 5.00
+ 2 'Dick' 8 5.00
+ 2 'Fred' 7 5.00
+ 2 'Harry' 6 5.00
+ 2 'Tom' 7 5.00
+ 3 'Irving' 10 5.00
+ 3 'Melvin' 9 7.00
+ 4 'Jenny' 15 20.00
+ 4 'Jessie' 16 10.00
+ 4 'Mary' 12 50.00
+ 4 'Oprah' 14 30.00
+ 4 'Sally' 13 40.00
+ 
+
+Answer:
+Unfortunately, there are some problems in the specification we got. Do
+we want the three largest sales (regardless of who made them) or the top
+three salespeople? There is a difference—look at district 1, where 'Larry'
+made all three of the largest sales, but the three best salespeople were
+'Larry', 'Moe', and 'Harpo'.
+What if more than three people sold exactly the same amount, as in
+district 2? If a district has less than three salespeople working in it, as in
+district 3, do we drop it from the report or not? Let us make the decision,
+since this is just a puzzle and not a production system, that the boss
+meant the three largest sales in each district, without regard to who the
+salespeople were. That query can be:
+
+SELECT *
+ FROM SalesData AS S0
+ WHERE sales_amt IN (SELECT S1.sales_amt
+ FROM SalesData AS S1
+ WHERE S0.district_nbr = S1.district_nbr
+ AND S0.sales_amt <= S1.sales_amt
+ HAVING COUNT(*) <= 3)
+ ORDER BY S0.district_nbr, S0.sales_person, S0.sales_id,
+S0.sales_amt;
+
+Results:
+district_nbr sales_person sales_id sales_amt
+====================================
+ 1 'Larry' 1 50.00
+ 1 'Larry' 2 50.00
+ 1 'Larry' 3 50.00
+ 3 'Irving' 10 5.00
+ 3 'Melvin' 9 7.00
+ 4 'Mary' 12 50.00
+ 4 'Oprah' 14 30.00
+ 4 'Sally' 13 40.00
+ 
+Now what if we wanted the top three salespeople in their districts,
+without regard to how many people were assigned to each district? We
+could modify the query like this:
+
+SELECT DISTINCT district_nbr, sales_person
+ FROM SalesData AS S0
+ WHERE sales_amt <= (SELECT MAX(S1.sales_amt)
+ FROM SalesData AS S1
+ WHERE S0.district_nbr = S1.district_nbr
+ AND S0.sales_amt <= S1.sales_amt
+ HAVING COUNT(DISTINCT S0.sales_amt) <= 3);
+ 
+and get these results. Please notice that you are getting the three largest
+sales.
+
+Results:
+district_nbr sales_person
+====================
+ 1 'Harpo'
+ 1 'Moe'
+ 1 'Larry'
+ 2 'Dick'
+ 2 'Fred'
+ 2 'Harry'
+ 2 'Tom'
+ 3 'Irving'
+ 3 'Melvin'
+ 4 'Oprah'
+ 4 'Sally'
+ 4 'Mary'
+ 
+Notice that four people are tied for the top three sales positions in
+district 2. Likewise, the lack of competition in district 3 gave us two
+salespeople in the top three. 
+
+
+--------------------
+
+
+-- Case 3:
+
+# One in Ten
+
+Let's assume you ran into a problem with some legacy system data that
+had been moved over to an SQL database. The table looked like this:
+
+ CREATE TABLE MyTable
+ (keycol INTEGER NOT NULL,
+ f1 INTEGER NOT NULL,
+ f2 INTEGER NOT NULL,
+ f3 INTEGER NOT NULL,
+ f4 INTEGER NOT NULL,
+ f5 INTEGER NOT NULL,
+ f6 INTEGER NOT NULL,
+ f7 INTEGER NOT NULL,
+ f8 INTEGER NOT NULL,
+ f9 INTEGER NOT NULL,
+ f10 INTEGER NOT NULL);
+ 
+The columns f1 through f10 were an attempt to flatten out an array
+into a table. What he wanted was an elegant way to test against the f1
+through f10 columns to find the rows that had exactly one nonzero
+value in their columns.
+
+How many different approaches can you find? We are looking for
+variety and not performance. 
+
+Answer:
+#1 
+You could use the SIGN() function in Sybase and other SQL products.
+This function returns -1, 0, or +1 if the argument is negative, zero, or
+positive, respectively. Assuming that your numbers are zero or greater,
+you simply write:
+
+ SELECT *
+ FROM MyTable
+ WHERE SIGN(f1) + SIGN(f2) + ... + SIGN(f10) = 1;
+ 
+to find a single nonzero value. If you can have negative values, then make
+the functions SIGN(ABS(fn)).
+
+The SIGN(ABS()) function combination can be written with the
+CASE expression in SQL-92 as:
+ CASE WHEN x <> 0 THEN 1 ELSE 0 END
+ 
+#2
+This depends on a feature of SQL-92 that is not generally available yet.
+First, the code, then the explanation:
+
+SELECT *
+ FROM MyTable
+ WHERE (f1, f2, ... , f10) IN
+ (VALUES (f1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ (0, f2, 0, 0, 0, 0, 0, 0, 0, 0),
+ ....
+ (0, 0, 0, 0, 0, 0, 0, 0, 0, f10))
+ AND (f1 + f2 + ... f10) > 0;
+
+In SQL-92, you can use row and table constructors in comparison
+predicates. The IN predicate expands into a sequence of OR-ed equality
+predicates. The row-wise version of equality is then done on a positionby-position basis, 
+where all corresponding values must be equal.
+
+#3
+If one and only one column is nonzero, then there is a one set of nine
+columns that are all zeros.
+
+SELECT *
+ FROM MyTable
+ WHERE 0 IN
+ (VALUES (f2 + f3 + .. f10), -- pull out f1
+ (f1 + f3 + .. f10), -- pull out f2
+ ...
+ (f1 + f2 + .. f9)) -- pull out f10
+ AND (f1 + f2 + ... f10) > 0; 
+
+#4
+SELECT *
+ FROM MyTable
+ WHERE
+(f1+1)*(f2+1)*(f3+1)*(f4+1)*(f5+1)*(f6+1)*(f7+1)*(f8+1)*(f9
++1)*(f10+1)*(f2+1)= 2
+
+
+--------------------
+
+
+-- Case 4:
+
+# FIND THE MODE COMPUTATION
+
+The only descriptive statistical function in SQL is the simple average,
+AVG(). While it is a common statistic, it is not the only one. The mean,
+the median, and the mode are all ways of measuring “central tendency”
+in a set of values. The mode is the most common value in a column in a
+table. Let’s suppose that the table is named “Payroll” and has the
+check_nbr number and the amount of each check_nbr.
+CREATE TABLE Payroll
+(check_nbr INTEGER NOT NULL PRIMARY KEY,
+ check_amt DECIMAL(8,2) NOT NULL,
+ ... );
+
+What we want to see is the most common check amount and the
+number of occurrences on the payroll. How would you write this query?
+
+Answer:
+#1
+SELECT check_amt, COUNT(*)AS check_cnt
+ FROM Payroll
+ GROUP BY check_amt
+HAVING COUNT(*) = (SELECT MAX(check_cnt)
+ FROM (SELECT COUNT(*) AS check_cnt
+ FROM Payroll
+ GROUP BY check_amt));
+
+The innermost SELECT statement has to be expanded completely
+before it passes the grouped table to its immediate containing SELECT
+statement. That statement finds the MAX() and then passes that single
+number to the outermost SELECT.
+
+#2
+You will find that many of the current versions of SQL have a mode()
+function in them now as part of the upcoming OLAP extensions, so this
+is not much of a question anymore. We can effectively replace the
+subquery with an OLAP function call.
+
+SELECT check_amt,
+ COUNT(*)OVER (PARTITION BY check_amt)
+ AS check_cnt
+ FROM Payroll; 
+ 
+ 
+ --------------------
+
+-- Case 5:
+
+# Multiple null rows in multile columns
+
+Imagine you are importing data from a source that sends you
+rows with all NULLs. And, no, the source cannot be modified to get rid of
+these rows on the other side of the system. After staging this data into
+SQL, you want to identify the NULL rows and remove them.
+
+Answer:
+DELETE FROM Staging
+WHERE COALESCE
+(col1, col2, col3, .., col100) IS NULL;
+
+This is about as fast as it will get. It also demonstrates that it helps to
+read the manual and find out what the SQL vendors have given you.
+Most of these utilities will define a <column> and its options (NULL-able,
+DEFAULT, key, indexed, etc.) in one row, so you just lift out the name and
+add a comma after it.
+It takes less than five seconds, even for large tables. You will spend
+more time writing code that will probably fail when the next release of
+our database comes out and the schema information tables are a little
+different.
+However, you will have to remember to update your SQL every time
+there is a change to the table or your query will fail every time you have a
+new release of your system, which will happen much more often than
+releases of your schema information tables.
+
+
+--------------------
+
+-- Case 6:
+
+# Permutations
+
+permutation is an ordered arrangement of
+elements of a set. For example, if I have the set {1, 2, 3}, the
+permutations of those elements are (1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1),
+(3, 1, 2), and (3, 2, 1). The rule is that for (n) elements, you have a
+factorial number (n!) of permutations. What I would like is a query that
+returns one permutation per row from a set of the first seven integers
+(that will give us 5,040 rows). Try to make the answer easy to generalize
+for more numbers.
+
+Answer:
+SELECT E1.i, E2.i, E3.i, E4.i, E5.i, E6.i, E7.i
+FROM Elements AS E1, Elements AS E2, Elements AS E3,
+Elements AS E4, Elements AS E5, Elements AS E6,
+Elements AS E7
+WHERE (E1.i + E2.i + E3.i + E4.i + E5.i + E6.i + E7.i)
+= 28
+AND E1.i NOT IN (E2.i, E3.i, E4.i, E5.i, E6.i, E7.i)
+AND E2.i NOT IN (E1.i, E3.i, E4.i, E5.i, E6.i, E7.i)
+AND E3.i NOT IN (E1.i, E2.i, E4.i, E5.i, E6.i, E7.i)
+AND E4.i NOT IN (E1.i, E2.i, E3.i, E5.i, E6.i, E7.i)
+AND E5.i NOT IN (E1.i, E2.i, E3.i, E4.i, E6.i, E7.i)
+AND E6.i NOT IN (E1.i, E2.i, E3.i, E4.i, E5.i, E7.i)
+AND E7.i NOT IN (E1.i, E2.i, E3.i, E4.i, E5.i, E6.i);
+
+--------------------
